@@ -10855,8 +10855,8 @@ function validateItemPublishValues(values, { requireAccount = true, requireImage
     parseOptionalPublishNumber(values.originalPrice, '原价');
     parseOptionalPublishNumber(values.postPrice, '邮费');
 
-    const imageCount = values.files.length || itemPublishLoadedMaterialImages.length;
-    if (requireImages && imageCount === 0) {
+    const imageSelection = getItemPublishImagesForSubmit(values);
+    if (requireImages && !imageSelection.hasImages) {
         throw new Error('请至少上传 1 张商品图片或载入素材图片');
     }
 }
@@ -10923,6 +10923,17 @@ function updateItemPublishMaterialModeBadge() {
 }
 
 function getItemPublishImageSrc(image) {
+    if (typeof image === 'string') {
+        const text = image.trim();
+        if (!text) {
+            return '';
+        }
+        if (text.startsWith('data:') || text.startsWith('http://') || text.startsWith('https://') || text.startsWith('/')) {
+            return text;
+        }
+        return `data:image/jpeg;base64,${text}`;
+    }
+
     const raw = String(image?.url || image?.image_url || image?.src || image?.data || image?.base64 || '').trim();
     if (!raw) {
         return '';
@@ -10931,6 +10942,32 @@ function getItemPublishImageSrc(image) {
         return raw;
     }
     return `data:image/jpeg;base64,${raw}`;
+}
+
+function getItemPublishImagesForSubmit(values) {
+    const files = Array.isArray(values?.files) ? values.files : [];
+    if (files.length > 0) {
+        return {
+            mode: 'multipart',
+            images: files,
+            hasImages: true
+        };
+    }
+
+    const loadedImages = Array.isArray(itemPublishLoadedMaterialImages)
+        ? itemPublishLoadedMaterialImages.filter(image => {
+            if (typeof image === 'string') {
+                return image.trim();
+            }
+            return image && typeof image === 'object';
+        })
+        : [];
+
+    return {
+        mode: 'json',
+        images: loadedImages,
+        hasImages: loadedImages.length > 0
+    };
 }
 
 function renderItemPublishStoredImagePreviews(images) {
@@ -11207,7 +11244,8 @@ async function submitItemPublishForm() {
 
     try {
         let responseData;
-        if (values.files.length > 0) {
+        const imageSelection = getItemPublishImagesForSubmit(values);
+        if (imageSelection.mode === 'multipart') {
             const formData = new FormData();
             formData.append('cookie_id', values.accountId);
             formData.append('title', values.title);
@@ -11218,7 +11256,7 @@ async function submitItemPublishForm() {
             formData.append('delivery_choice', values.deliveryChoice);
             formData.append('post_price', values.postPrice);
             formData.append('can_self_pickup', values.canSelfPickup ? 'true' : 'false');
-            values.files.forEach(file => formData.append('images', file));
+            imageSelection.images.forEach(file => formData.append('images', file));
 
             const response = await fetch(`${apiBase}/item-publish`, {
                 method: 'POST',
@@ -11239,7 +11277,7 @@ async function submitItemPublishForm() {
                 throw new Error(responseData.detail || responseData.message || `HTTP ${response.status}`);
             }
         } else {
-            const payload = buildItemPublishJsonPayload(values, itemPublishLoadedMaterialImages);
+            const payload = buildItemPublishJsonPayload(values, imageSelection.images);
             responseData = await requestItemPublishJson('/product-publish', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },

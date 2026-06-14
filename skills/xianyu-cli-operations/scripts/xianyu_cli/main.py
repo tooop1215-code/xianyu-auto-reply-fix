@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import base64
 import getpass
 import json
+import mimetypes
 import subprocess
 import sys
 from pathlib import Path
@@ -379,13 +381,17 @@ def _handle_material_delete(args: argparse.Namespace, _config: CliConfig, client
 
 
 def _material_payload(args: argparse.Namespace, *, partial: bool) -> Dict[str, Any]:
+    images = args.images
+    if images is not None:
+        images = _material_images_payload(images)
+
     candidates = {
         "title": args.title,
         "description": args.description,
         "price": args.price,
         "original_price": args.original_price,
         "category": args.category,
-        "images": args.images,
+        "images": images,
         "delivery_method": args.delivery_method,
         "postage": args.postage,
         "can_self_pickup": args.self_pickup,
@@ -396,6 +402,33 @@ def _material_payload(args: argparse.Namespace, *, partial: bool) -> Dict[str, A
     if partial:
         return {key: value for key, value in candidates.items() if value is not None}
     return {key: value for key, value in candidates.items() if value is not None}
+
+
+def _material_images_payload(images: Iterable[str]) -> List[Dict[str, Any]]:
+    payload: List[Dict[str, Any]] = []
+    for image in images:
+        text = str(image or "").strip()
+        if not text:
+            continue
+        if text.startswith(("http://", "https://")):
+            payload.append({"url": text})
+            continue
+        if text.startswith("data:"):
+            payload.append({"data": text})
+            continue
+
+        path = Path(text).expanduser()
+        content = path.read_bytes()
+        mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        payload.append(
+            {
+                "filename": path.name,
+                "data": f"data:{mime_type};base64,{base64.b64encode(content).decode('ascii')}",
+                "size": len(content),
+                "type": mime_type,
+            }
+        )
+    return payload
 
 
 def _read_json_file(path: str) -> Any:

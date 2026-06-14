@@ -8,6 +8,7 @@ from pathlib import Path
 from urllib.parse import unquote
 from urllib import request as urllib_request, error as urllib_error
 import hashlib
+import hmac
 import secrets
 import time
 import json
@@ -69,8 +70,11 @@ KEYWORDS_FILE = Path(__file__).parent / "回复关键字.txt"
 # 简单的用户认证配置
 ADMIN_USERNAME = "admin"
 DEFAULT_ADMIN_PASSWORD = "admin123"  # 系统初始化时的默认密码
-SESSION_TOKENS = {}  # 存储会话token: {token: {'user_id': int, 'username': str, 'timestamp': float}}
-TOKEN_EXPIRE_TIME = 24 * 60 * 60  # token过期时间：24小时
+SESSION_TOKENS = {}  # 进程内会话缓存: {token: {'user_id': int, 'username': str, 'timestamp': float}}
+REVOKED_SESSION_TOKENS = set()
+TOKEN_EXPIRE_TIME = int(os.getenv("TOKEN_EXPIRE_TIME", str(24 * 60 * 60)))  # token过期时间：默认24小时
+SESSION_TOKEN_SECRET = os.getenv("JWT_SECRET_KEY") or os.getenv("SECRET_KEY") or "default-secret-key"
+SESSION_TOKEN_PREFIX = "oc1"
 
 # HTTP Bearer认证
 security = HTTPBearer(auto_error=False)
@@ -939,23 +943,123 @@ def generate_token() -> str:
     return secrets.token_urlsafe(32)
 
 
+def _b64url_encode(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).decode("ascii").rstrip("=")
+
+
+def _b64url_decode(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode((value + padding).encode("ascii"))
+
+
+def _session_token_hash(token: str) -> str:
+    return hashlib.sha256(str(token or "").encode("utf-8")).hexdigest()
+
+
+def _sign_session_payload(payload_segment: str) -> str:
+    digest = hmac.new(
+        SESSION_TOKEN_SECRET.encode("utf-8"),
+        payload_segment.encode("ascii"),
+        hashlib.sha256,
+    ).digest()
+    return _b64url_encode(digest)
+
+
+def create_session_token(user_info: Dict[str, Any]) -> str:
+    """创建可跨进程重启验证的后台登录 token。"""
+    issued_at = float(user_info.get("timestamp") or time.time())
+    payload = {
+        "user_id": int(user_info["user_id"]),
+        "username": str(user_info["username"]),
+        "is_admin": bool(user_info.get("is_admin", False)),
+        "iat": issued_at,
+        "exp": issued_at + TOKEN_EXPIRE_TIME,
+    }
+    payload_segment = _b64url_encode(
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    )
+    signature = _sign_session_payload(payload_segment)
+    return f"{SESSION_TOKEN_PREFIX}.{payload_segment}.{signature}"
+
+
+def _decode_session_token(token: str) -> Optional[Dict[str, Any]]:
+    parts = str(token or "").split(".")
+    if len(parts) != 3 or parts[0] != SESSION_TOKEN_PREFIX:
+        return None
+
+    payload_segment, signature = parts[1], parts[2]
+    expected_signature = _sign_session_payload(payload_segment)
+    if not hmac.compare_digest(signature, expected_signature):
+        return None
+
+    try:
+        payload = json.loads(_b64url_decode(payload_segment).decode("utf-8"))
+    except Exception:
+        return None
+
+    expires_at = float(payload.get("exp") or 0)
+    if expires_at <= time.time():
+        return None
+
+    username = str(payload.get("username") or "").strip()
+    user_id = payload.get("user_id")
+    if not username or user_id is None:
+        return None
+
+    return {
+        "user_id": int(user_id),
+        "username": username,
+        "is_admin": bool(payload.get("is_admin", False)),
+        "timestamp": float(payload.get("iat") or time.time()),
+    }
+
+
+def _cache_session_token(token: str, token_data: Dict[str, Any]) -> None:
+    SESSION_TOKENS[token] = {
+        "user_id": int(token_data["user_id"]),
+        "username": str(token_data["username"]),
+        "is_admin": bool(token_data.get("is_admin", False)),
+        "timestamp": float(token_data.get("timestamp") or time.time()),
+    }
+
+
+def _issue_session_token(user_id: int, username: str, is_admin: bool) -> str:
+    token_data = {
+        "user_id": int(user_id),
+        "username": str(username),
+        "is_admin": bool(is_admin),
+        "timestamp": time.time(),
+    }
+    token = create_session_token(token_data)
+    _cache_session_token(token, token_data)
+    return token
+
+
+def _get_session_token_data(token: str) -> Optional[Dict[str, Any]]:
+    if not token or _session_token_hash(token) in REVOKED_SESSION_TOKENS:
+        return None
+
+    if token in SESSION_TOKENS:
+        token_data = SESSION_TOKENS[token]
+        if time.time() - token_data['timestamp'] <= TOKEN_EXPIRE_TIME:
+            return token_data
+        del SESSION_TOKENS[token]
+        return None
+
+    token_data = _decode_session_token(token)
+    if token_data:
+        _cache_session_token(token, token_data)
+        return SESSION_TOKENS[token]
+    return None
+
+
 def verify_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Optional[Dict[str, Any]]:
     """验证token并返回用户信息"""
     if not credentials:
         return None
 
     token = credentials.credentials
-    if token not in SESSION_TOKENS:
-        return None
-
-    token_data = SESSION_TOKENS[token]
-
-    # 检查token是否过期
-    if time.time() - token_data['timestamp'] > TOKEN_EXPIRE_TIME:
-        del SESSION_TOKENS[token]
-        return None
-
-    return token_data
+    return _get_session_token_data(token)
 
 
 def verify_admin_token(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)) -> Dict[str, Any]:
@@ -1170,11 +1274,9 @@ async def log_requests(request, call_next):
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header.split(" ")[1]
-            if token in SESSION_TOKENS:
-                token_data = SESSION_TOKENS[token]
-                # 检查token是否过期
-                if time.time() - token_data['timestamp'] <= TOKEN_EXPIRE_TIME:
-                    user_info = f"【{token_data['username']}#{token_data['user_id']}】"
+            token_data = _get_session_token_data(token)
+            if token_data:
+                user_info = f"【{token_data['username']}#{token_data['user_id']}】"
     except Exception:
         pass
 
@@ -1506,14 +1608,7 @@ async def login(login_request: LoginRequest, request: Request):
                 # 获取is_admin状态
                 user_is_admin = user.get('is_admin', False)
 
-                # 生成token
-                token = generate_token()
-                SESSION_TOKENS[token] = {
-                    'user_id': user['id'],
-                    'username': user['username'],
-                    'is_admin': user_is_admin,
-                    'timestamp': time.time()
-                }
+                token = _issue_session_token(user['id'], user['username'], user_is_admin)
 
                 # 区分管理员和普通用户的日志
                 if user_is_admin:
@@ -1560,14 +1655,7 @@ async def login(login_request: LoginRequest, request: Request):
             # 获取is_admin状态
             user_is_admin = user.get('is_admin', False)
 
-            # 生成token
-            token = generate_token()
-            SESSION_TOKENS[token] = {
-                'user_id': user['id'],
-                'username': user['username'],
-                'is_admin': user_is_admin,
-                'timestamp': time.time()
-            }
+            token = _issue_session_token(user['id'], user['username'], user_is_admin)
 
             if user_is_admin:
                 logger.info(f"【{user['username']}#{user['id']}】邮箱登录成功（管理员）(IP: {client_ip})")
@@ -1634,14 +1722,7 @@ async def login(login_request: LoginRequest, request: Request):
         # 获取is_admin状态
         user_is_admin = user.get('is_admin', False)
 
-        # 生成token
-        token = generate_token()
-        SESSION_TOKENS[token] = {
-            'user_id': user['id'],
-            'username': user['username'],
-            'is_admin': user_is_admin,
-            'timestamp': time.time()
-        }
+        token = _issue_session_token(user['id'], user['username'], user_is_admin)
 
         if user_is_admin:
             logger.info(f"【{user['username']}#{user['id']}】验证码登录成功（管理员）(IP: {client_ip})")
@@ -1680,8 +1761,10 @@ async def verify(user_info: Optional[Dict[str, Any]] = Depends(verify_token)):
 # 登出接口
 @app.post('/logout')
 async def logout(credentials: Optional[HTTPAuthorizationCredentials] = Depends(security)):
-    if credentials and credentials.credentials in SESSION_TOKENS:
-        del SESSION_TOKENS[credentials.credentials]
+    if credentials:
+        REVOKED_SESSION_TOKENS.add(_session_token_hash(credentials.credentials))
+        if credentials.credentials in SESSION_TOKENS:
+            del SESSION_TOKENS[credentials.credentials]
     return {"message": "已登出"}
 
 
@@ -9989,6 +10072,25 @@ def _normalize_product_publish_data(data: Dict[str, Any], *, partial: bool = Fal
     return normalized
 
 
+def _normalize_publish_image(image: Any, index: int) -> Dict[str, Any]:
+    if isinstance(image, str):
+        text = image.strip()
+        if not text:
+            raise HTTPException(status_code=400, detail=f"第 {index} 张图片为空")
+        if text.startswith(("http://", "https://", "/static/")):
+            return {"url": text}
+        if text.startswith("data:"):
+            return {"data": text}
+        return {"base64": text}
+
+    if not isinstance(image, dict):
+        raise HTTPException(status_code=400, detail=f"第 {index} 张图片格式无效")
+
+    if not any(image.get(key) for key in ('url', 'image_url', 'src', 'content', 'data', 'base64')):
+        raise HTTPException(status_code=400, detail=f"第 {index} 张图片缺少 URL 或 Base64 内容")
+    return image
+
+
 def _validate_publish_images(images: List[Any]) -> List[Dict[str, Any]]:
     if not images:
         raise HTTPException(status_code=400, detail="请至少提供 1 张商品图片")
@@ -9997,11 +10099,7 @@ def _validate_publish_images(images: List[Any]) -> List[Dict[str, Any]]:
 
     normalized_images = []
     for index, image in enumerate(images, start=1):
-        if not isinstance(image, dict):
-            raise HTTPException(status_code=400, detail=f"第 {index} 张图片格式无效")
-        if not any(image.get(key) for key in ('url', 'image_url', 'src', 'content', 'data', 'base64')):
-            raise HTTPException(status_code=400, detail=f"第 {index} 张图片缺少 URL 或 Base64 内容")
-        normalized_images.append(image)
+        normalized_images.append(_normalize_publish_image(image, index))
     return normalized_images
 
 

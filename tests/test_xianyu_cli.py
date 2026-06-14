@@ -343,6 +343,35 @@ class XianyuCliTest(unittest.TestCase):
             self.assertEqual(fake_client.calls[0]["json_body"], body, argv)
             self.assertEqual(fake_client.calls[0]["query"], query, argv)
 
+    def test_material_create_embeds_image_file_payload(self):
+        fake_client = FakeClient()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            image_path = Path(tmpdir) / "cover.png"
+            image_path.write_bytes(b"fake-png-bytes")
+
+            code = run(
+                [
+                    "product",
+                    "materials",
+                    "create",
+                    "--title",
+                    "素材",
+                    "--description",
+                    "描述",
+                    "--image",
+                    str(image_path),
+                ],
+                client=fake_client,
+                stdout=io.StringIO(),
+            )
+
+        self.assertEqual(code, 0)
+        image_payload = fake_client.calls[0]["json_body"]["images"][0]
+        self.assertEqual(image_payload["filename"], "cover.png")
+        self.assertEqual(image_payload["size"], len(b"fake-png-bytes"))
+        self.assertEqual(image_payload["type"], "image/png")
+        self.assertTrue(image_payload["data"].startswith("data:image/png;base64,"))
+
     def test_render_table_uses_selected_columns(self):
         text = render_table(
             [{"id": "1", "title": "短标题", "price": 19.9}],
