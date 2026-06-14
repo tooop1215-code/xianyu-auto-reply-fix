@@ -94,6 +94,12 @@ cd /Users/bot/Documents/即刻方案
 ./xianyu product detail <account_id> <item_id>
 ```
 
+如果商品是在闲鱼 App/网页手动发布的，先同步远端账号再读本地列表：
+
+```bash
+./xianyu product list --account <account_id> --sync
+```
+
 搜索外部商品参考：
 
 ```bash
@@ -149,10 +155,13 @@ cd /Users/bot/Documents/即刻方案
 ./xianyu product publish \
   --account <account_id> \
   --title "标题" \
+  --category "手机" \
   --description "描述" \
   --price 19.9 \
   --image ./cover.jpg
 ```
+
+发布时优先显式填写 `--category`。可传类目名称，例如 `"手机"`、`"图书"`；如果已经有结构化类目信息，也可传 JSON 字符串，例如 `'{"catId":"50024400","catName":"手机","channelCatId":"1001","tbCatId":"150704"}'`。
 
 用 JSON 发布：
 

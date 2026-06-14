@@ -227,6 +227,8 @@ class XianyuCliTest(unittest.TestCase):
                     "acc-1",
                     "--title",
                     "测试商品",
+                    "--category",
+                    "手机",
                     "--description",
                     "描述",
                     "--price",
@@ -242,6 +244,7 @@ class XianyuCliTest(unittest.TestCase):
         self.assertEqual(fake_client.calls[0]["kind"], "multipart")
         self.assertEqual(fake_client.calls[0]["path"], "/item-publish")
         self.assertEqual(fake_client.calls[0]["fields"]["cookie_id"], "acc-1")
+        self.assertEqual(fake_client.calls[0]["fields"]["category"], "手机")
         self.assertEqual(fake_client.calls[0]["fields"]["current_price"], "19.9")
         self.assertEqual(fake_client.calls[0]["files"], [("images", "cover.jpg")])
 
@@ -279,6 +282,35 @@ class XianyuCliTest(unittest.TestCase):
             self.assertEqual(fake_client.calls[0]["method"], method, argv)
             self.assertEqual(fake_client.calls[0]["path"], path, argv)
             self.assertEqual(fake_client.calls[0]["json_body"], body, argv)
+
+    def test_product_list_with_sync_pulls_remote_items_before_reading_local_list(self):
+        fake_client = FakeClient()
+        code = run(
+            ["product", "list", "--account", "acc-1", "--sync"],
+            client=fake_client,
+            stdout=io.StringIO(),
+        )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            fake_client.calls,
+            [
+                {
+                    "kind": "json",
+                    "method": "POST",
+                    "path": "/items/get-all-from-account",
+                    "json_body": {"cookie_id": "acc-1"},
+                    "query": None,
+                },
+                {
+                    "kind": "json",
+                    "method": "GET",
+                    "path": "/items/acc-1",
+                    "json_body": None,
+                    "query": None,
+                },
+            ],
+        )
 
     def test_material_commands_map_to_expected_endpoints(self):
         fake_client = FakeClient()

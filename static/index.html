@@ -823,7 +823,7 @@
               <div class="card-header d-flex justify-content-between align-items-center">
                 <div>
                   <h5 class="mb-1">发布表单</h5>
-                  <div class="text-muted small">第一版支持单商品发布、多图上传、价格与运费配置。</div>
+                  <div class="text-muted small">支持单商品发布、多图上传、类目、价格与运费配置。</div>
                 </div>
                 <div class="d-flex align-items-center gap-2">
                   <span class="badge text-bg-light border" id="publishMaterialModeBadge">新建素材</span>
@@ -852,6 +852,11 @@
                     <div class="col-12">
                       <label for="publishTitle" class="form-label">商品标题</label>
                       <input type="text" class="form-control" id="publishTitle" maxlength="60" placeholder="输入商品标题" required>
+                    </div>
+
+                    <div class="col-md-6">
+                      <label for="publishCategory" class="form-label">商品类目</label>
+                      <input type="text" class="form-control" id="publishCategory" maxlength="120" placeholder="例如：手机、图书、数码配件">
                     </div>
 
                     <div class="col-12">

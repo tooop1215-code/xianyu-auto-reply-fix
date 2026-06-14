@@ -9734,7 +9734,7 @@ class ProductMaterialRequest(BaseModel):
     description: str
     price: Optional[float] = None
     original_price: Optional[float] = None
-    category: Optional[str] = None
+    category: Optional[Any] = None
     images: List[Any] = []
     delivery_method: str = "包邮"
     postage: Optional[float] = 0
@@ -9749,7 +9749,7 @@ class ProductMaterialUpdateRequest(BaseModel):
     description: Optional[str] = None
     price: Optional[float] = None
     original_price: Optional[float] = None
-    category: Optional[str] = None
+    category: Optional[Any] = None
     images: Optional[List[Any]] = None
     delivery_method: Optional[str] = None
     postage: Optional[float] = None
@@ -9774,7 +9774,7 @@ class ProductSinglePublishRequest(BaseModel):
     delivery_method: str = "包邮"
     postage: Optional[float] = 0
     can_self_pickup: bool = False
-    category: Optional[str] = None
+    category: Optional[Any] = None
     brand: Optional[str] = None
     condition: Optional[str] = "全新"
 
@@ -9929,13 +9929,22 @@ def _dedupe_int_list(values: List[Any], field_label: str) -> List[int]:
 def _normalize_product_publish_data(data: Dict[str, Any], *, partial: bool = False) -> Dict[str, Any]:
     normalized: Dict[str, Any] = {}
 
-    for field in ('title', 'description', 'category', 'brand', 'condition', 'remark'):
+    for field in ('title', 'description', 'brand', 'condition', 'remark'):
         if field in data or not partial:
             value = data.get(field)
             if value is None:
                 normalized[field] = None
             else:
                 normalized[field] = str(value).strip()
+
+    if 'category' in data or not partial:
+        category_value = data.get('category')
+        if category_value is None:
+            normalized['category'] = None
+        elif isinstance(category_value, dict):
+            normalized['category'] = category_value
+        else:
+            normalized['category'] = str(category_value).strip()
 
     if not partial:
         if not normalized.get('title'):
@@ -10031,6 +10040,9 @@ async def _publish_product_to_account(
     delivery_choice: str,
     post_price: Optional[float],
     can_self_pickup: bool,
+    category: Optional[Any] = None,
+    brand: Optional[str] = None,
+    condition: Optional[str] = None,
     material_id: Optional[int] = None,
     batch_id: Optional[str] = None,
     log_id: Optional[int] = None,
@@ -10082,7 +10094,8 @@ async def _publish_product_to_account(
     try:
         logger.info(
             f"{user_prefix} 开始发布商品: cookie_id={cleaned_account_id}, "
-            f"title={cleaned_title}, images={len(image_payloads)}, delivery_choice={delivery_choice}"
+            f"title={cleaned_title}, images={len(image_payloads)}, delivery_choice={delivery_choice}, "
+            f"category={category or 'auto'}"
         )
 
         async with ItemPublisher(cookies_str, cleaned_account_id, proxy_config=proxy_config) as publisher:
@@ -10095,6 +10108,9 @@ async def _publish_product_to_account(
                 delivery_choice=delivery_choice,
                 post_price=post_price_value,
                 can_self_pickup=bool(can_self_pickup),
+                category_hint=category,
+                brand=brand,
+                condition=condition,
             )
             latest_cookies_str = publisher.cookies_str
             published_item_id = publisher.extract_published_item_id(publish_result)
@@ -10214,6 +10230,9 @@ async def _run_product_batch_publish(batch_id: str, jobs: List[Dict[str, Any]], 
                 delivery_choice=material.get('delivery_method') or '包邮',
                 post_price=material.get('postage'),
                 can_self_pickup=bool(material.get('can_self_pickup')),
+                category=material.get('category'),
+                brand=material.get('brand'),
+                condition=material.get('condition'),
                 material_id=material.get('id'),
                 batch_id=batch_id,
                 log_id=log_id,
@@ -10377,6 +10396,9 @@ async def publish_product_json(
         delivery_choice=data.get('delivery_method') or '包邮',
         post_price=data.get('postage'),
         can_self_pickup=bool(data.get('can_self_pickup')),
+        category=data.get('category'),
+        brand=data.get('brand'),
+        condition=data.get('condition'),
     )
 
 
@@ -10598,6 +10620,9 @@ async def publish_item(
     delivery_choice: str = Form(...),
     post_price: str = Form(default=""),
     can_self_pickup: str = Form(default="false"),
+    category: str = Form(default=""),
+    brand: str = Form(default=""),
+    condition: str = Form(default=""),
     images: List[UploadFile] = File(...),
     current_user: Dict[str, Any] = Depends(get_current_user),
 ):
@@ -10627,6 +10652,9 @@ async def publish_item(
         delivery_choice=delivery_choice,
         post_price=post_price,
         can_self_pickup=_parse_form_bool(can_self_pickup),
+        category=category,
+        brand=brand,
+        condition=condition,
     )
 
 

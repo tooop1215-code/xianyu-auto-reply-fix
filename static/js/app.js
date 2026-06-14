@@ -10821,6 +10821,7 @@ function getItemPublishFormValues() {
     return {
         accountId: document.getElementById('publishCookieId')?.value || '',
         title: document.getElementById('publishTitle')?.value.trim() || '',
+        category: document.getElementById('publishCategory')?.value.trim() || '',
         description: document.getElementById('publishDescription')?.value.trim() || '',
         currentPrice: document.getElementById('publishCurrentPrice')?.value.trim() || '',
         originalPrice: document.getElementById('publishOriginalPrice')?.value.trim() || '',
@@ -10890,6 +10891,7 @@ function buildItemPublishJsonPayload(values, images) {
         account_id: values.accountId,
         title: values.title,
         description: values.description,
+        category: values.category || null,
         price: parseOptionalPublishNumber(values.currentPrice, '现价'),
         original_price: parseOptionalPublishNumber(values.originalPrice, '原价'),
         images,
@@ -11082,6 +11084,12 @@ function loadItemPublishMaterialToForm(materialId) {
     }
 
     document.getElementById('publishTitle').value = material.title || '';
+    const categoryInput = document.getElementById('publishCategory');
+    if (categoryInput) {
+        categoryInput.value = typeof material.category === 'object' && material.category !== null
+            ? JSON.stringify(material.category)
+            : (material.category || '');
+    }
     document.getElementById('publishDescription').value = material.description || '';
     document.getElementById('publishCurrentPrice').value = material.price ?? '';
     document.getElementById('publishOriginalPrice').value = material.original_price ?? '';
@@ -11203,6 +11211,7 @@ async function submitItemPublishForm() {
             const formData = new FormData();
             formData.append('cookie_id', values.accountId);
             formData.append('title', values.title);
+            formData.append('category', values.category);
             formData.append('description', values.description);
             formData.append('current_price', values.currentPrice);
             formData.append('original_price', values.originalPrice);

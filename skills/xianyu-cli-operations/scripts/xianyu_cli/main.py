@@ -124,7 +124,8 @@ def _add_product_commands(subparsers: argparse._SubParsersAction) -> None:
     )
     list_cmd = product_sub.add_parser("list", help="列出指定账号本地商品")
     list_cmd.add_argument("--account", required=True)
-    list_cmd.set_defaults(handler=lambda args, _config, client, _runner: client.request("GET", f"/items/{args.account}"))
+    list_cmd.add_argument("--sync", action="store_true", help="先从闲鱼账号同步远端商品，再读取本地列表")
+    list_cmd.set_defaults(handler=_handle_product_list)
 
     detail = product_sub.add_parser("detail")
     detail.add_argument("account_id")
@@ -161,6 +162,9 @@ def _add_product_commands(subparsers: argparse._SubParsersAction) -> None:
     publish.add_argument("--description", default="")
     publish.add_argument("--price", default="")
     publish.add_argument("--original-price", default="")
+    publish.add_argument("--category", default="", help="类目名称或结构化类目 JSON，用于发布类目选择")
+    publish.add_argument("--brand", default="")
+    publish.add_argument("--condition", default="")
     publish.add_argument("--delivery", default="包邮")
     publish.add_argument("--postage", default="")
     publish.add_argument("--self-pickup", action="store_true")
@@ -306,6 +310,12 @@ def _handle_product_search(args: argparse.Namespace, _config: CliConfig, client:
     )
 
 
+def _handle_product_list(args: argparse.Namespace, _config: CliConfig, client: Any, _runner: CommandRunner) -> Any:
+    if args.sync:
+        client.request("POST", "/items/get-all-from-account", json_body={"cookie_id": args.account})
+    return client.request("GET", f"/items/{args.account}")
+
+
 def _handle_product_pull(args: argparse.Namespace, _config: CliConfig, client: Any, _runner: CommandRunner) -> Any:
     if args.page is None:
         return client.request("POST", "/items/get-all-from-account", json_body={"cookie_id": args.account_id})
@@ -323,6 +333,9 @@ def _handle_product_publish(args: argparse.Namespace, _config: CliConfig, client
         "description": args.description,
         "current_price": args.price,
         "original_price": args.original_price,
+        "category": args.category,
+        "brand": args.brand,
+        "condition": args.condition,
         "delivery_choice": args.delivery,
         "post_price": args.postage,
         "can_self_pickup": "true" if args.self_pickup else "false",

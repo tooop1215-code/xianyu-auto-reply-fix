@@ -214,6 +214,9 @@ class ItemPublisher:
         delivery_choice: str,
         post_price: Optional[float],
         can_self_pickup: bool,
+        category_hint: Optional[Any] = None,
+        brand: Optional[str] = None,
+        condition: Optional[str] = None,
     ) -> Dict[str, Any]:
         if delivery_choice not in self.ALLOWED_DELIVERY_CHOICES:
             raise ValueError("不支持的运费方式")
@@ -232,7 +235,11 @@ class ItemPublisher:
         if not publish_desc:
             raise ValueError("商品描述不能为空")
 
-        channel_res = await self.get_public_channel(publish_title, uploaded_images)
+        channel_res = await self.get_public_channel(
+            publish_title,
+            uploaded_images,
+            category_hint=category_hint,
+        )
         if not self.is_success_response(channel_res):
             raise RuntimeError(f"获取发布类目失败: {self.extract_error_message(channel_res)}")
 
@@ -249,6 +256,7 @@ class ItemPublisher:
             delivery_choice=delivery_choice,
             post_price=post_price,
             can_self_pickup=can_self_pickup,
+            category_hint=category_hint,
         )
 
         publish_res = await self._post_mtop(
@@ -345,14 +353,25 @@ class ItemPublisher:
             "height": height,
         }
 
-    async def get_public_channel(self, title: str, images_info: List[Dict[str, Any]]) -> Dict[str, Any]:
+    async def get_public_channel(
+        self,
+        title: str,
+        images_info: List[Dict[str, Any]],
+        *,
+        category_hint: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        category_text = self._category_hint_text(category_hint)
+        recommend_description = title
+        if category_text and category_text not in title:
+            recommend_description = f"{title}\n类目：{category_text}"
+
         payload = {
             "title": title,
             "lockCpv": False,
             "multiSKU": False,
             "publishScene": "mainPublish",
             "scene": "newPublishChoice",
-            "description": title,
+            "description": recommend_description,
             "imageInfos": [
                 {
                     "extraInfo": {
@@ -422,9 +441,14 @@ class ItemPublisher:
         delivery_choice: str,
         post_price: Optional[float],
         can_self_pickup: bool,
+        category_hint: Optional[Any] = None,
     ) -> Dict[str, Any]:
-        category_result = channel_res.get("data", {}).get("categoryPredictResult", {})
         card_list = channel_res.get("data", {}).get("cardList", []) or []
+        category_result = self._resolve_item_category(
+            channel_res=channel_res,
+            card_list=card_list,
+            category_hint=category_hint,
+        )
 
         payload = {
             "freebies": False,
@@ -453,7 +477,7 @@ class ItemPublisher:
                 "title": title,
                 "titleDescSeparate": description != title,
             },
-            "itemLabelExtList": self._build_item_label_list(card_list),
+            "itemLabelExtList": self._build_item_label_list(card_list, category_hint=category_hint),
             "itemPriceDTO": {},
             "userRightsProtocols": [
                 {
@@ -551,39 +575,243 @@ class ItemPublisher:
             payload["defaultPrice"] = True
 
     @staticmethod
-    def _build_item_label_list(card_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        labels: List[Dict[str, Any]] = []
+    def _first_non_empty(node: Dict[str, Any], keys: Tuple[str, ...]) -> str:
+        for key in keys:
+            value = node.get(key)
+            text = str(value or "").strip()
+            if text:
+                return text
+        return ""
+
+    @classmethod
+    def _normalize_category_node(cls, node: Any) -> Optional[Dict[str, str]]:
+        if not isinstance(node, dict):
+            return None
+
+        source = node.get("itemCatDTO") if isinstance(node.get("itemCatDTO"), dict) else node
+        cat_id = cls._first_non_empty(
+            source,
+            (
+                "catId",
+                "cat_id",
+                "categoryId",
+                "category_id",
+                "id",
+                "channelCatId",
+                "channel_cat_id",
+                "channelCateId",
+                "valueId",
+            ),
+        )
+        cat_name = cls._first_non_empty(
+            source,
+            (
+                "catName",
+                "cat_name",
+                "categoryName",
+                "category_name",
+                "name",
+                "text",
+                "label",
+                "valueName",
+                "channelCateName",
+            ),
+        )
+        channel_cat_id = cls._first_non_empty(
+            source,
+            (
+                "channelCatId",
+                "channel_cat_id",
+                "channelCateId",
+                "catId",
+                "cat_id",
+                "categoryId",
+                "category_id",
+                "id",
+                "valueId",
+            ),
+        )
+        tb_cat_id = cls._first_non_empty(source, ("tbCatId", "tb_cat_id", "taobaoCatId"))
+
+        if not (cat_id or cat_name or channel_cat_id or tb_cat_id):
+            return None
+        if not cat_id and channel_cat_id:
+            cat_id = channel_cat_id
+        if not channel_cat_id and cat_id:
+            channel_cat_id = cat_id
+
+        return {
+            "catId": cat_id,
+            "catName": cat_name,
+            "channelCatId": channel_cat_id,
+            "tbCatId": tb_cat_id,
+        }
+
+    @classmethod
+    def _category_hint_to_item_category(cls, category_hint: Optional[Any]) -> Optional[Dict[str, str]]:
+        if not category_hint:
+            return None
+        if isinstance(category_hint, dict):
+            normalized = cls._normalize_category_node(category_hint)
+            if normalized and any(normalized.get(key) for key in ("catId", "channelCatId", "tbCatId")):
+                return normalized
+            return None
+        if isinstance(category_hint, str):
+            text = category_hint.strip()
+            if not text:
+                return None
+            if text.startswith("{") and text.endswith("}"):
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError:
+                    return None
+                normalized = cls._normalize_category_node(parsed)
+                if normalized and any(normalized.get(key) for key in ("catId", "channelCatId", "tbCatId")):
+                    return normalized
+        return None
+
+    @classmethod
+    def _category_hint_text(cls, category_hint: Optional[Any]) -> str:
+        if not category_hint:
+            return ""
+        if isinstance(category_hint, dict):
+            normalized = cls._normalize_category_node(category_hint) or {}
+            return normalized.get("catName") or normalized.get("catId") or ""
+        if isinstance(category_hint, str):
+            text = category_hint.strip()
+            if text.startswith("{") and text.endswith("}"):
+                normalized = cls._category_hint_to_item_category(text) or {}
+                return normalized.get("catName") or normalized.get("catId") or text
+            return text
+        return str(category_hint).strip()
+
+    @classmethod
+    def _category_hint_matches(cls, value: Any, category_hint: Optional[Any]) -> bool:
+        if not isinstance(value, dict):
+            return False
+        hint_text = cls._category_hint_text(category_hint).lower()
+        if not hint_text:
+            return False
+
+        for key in (
+            "catName",
+            "cat_name",
+            "categoryName",
+            "category_name",
+            "name",
+            "text",
+            "channelCatId",
+            "channel_cat_id",
+            "channelCateId",
+            "catId",
+            "cat_id",
+            "categoryId",
+            "category_id",
+            "tbCatId",
+            "tb_cat_id",
+        ):
+            candidate = str(value.get(key) or "").strip().lower()
+            if not candidate:
+                continue
+            if candidate == hint_text or candidate in hint_text or hint_text in candidate:
+                return True
+        return False
+
+    @classmethod
+    def _find_category_value(
+        cls,
+        card_list: List[Dict[str, Any]],
+        category_hint: Optional[Any],
+    ) -> Optional[Dict[str, Any]]:
+        if not cls._category_hint_text(category_hint):
+            return None
         for card in card_list:
+            if not isinstance(card, dict):
+                continue
             card_data = card.get("cardData") or {}
             values_list = card_data.get("valuesList") or []
             for value in values_list:
-                if not value.get("isClicked"):
-                    continue
-                labels.append(
-                    {
-                        "channelCateName": value.get("catName"),
-                        "valueId": None,
-                        "channelCateId": value.get("channelCatId"),
-                        "valueName": None,
-                        "tbCatId": value.get("tbCatId"),
-                        "subPropertyId": None,
-                        "labelType": "common",
-                        "subValueId": None,
-                        "labelId": None,
-                        "propertyName": card_data.get("propertyName"),
-                        "isUserClick": "1",
-                        "isUserCancel": None,
-                        "from": "newPublishChoice",
-                        "propertyId": card_data.get("propertyId"),
-                        "labelFrom": "newPublish",
-                        "text": value.get("catName"),
-                        "properties": (
-                            f"{card_data.get('propertyId')}##{card_data.get('propertyName')}:"
-                            f"{value.get('channelCatId')}##{value.get('catName')}"
-                        ),
-                    }
-                )
-                break
+                if cls._category_hint_matches(value, category_hint):
+                    return value
+        return None
+
+    @classmethod
+    def _resolve_item_category(
+        cls,
+        *,
+        channel_res: Dict[str, Any],
+        card_list: List[Dict[str, Any]],
+        category_hint: Optional[Any],
+    ) -> Dict[str, str]:
+        direct_hint = cls._category_hint_to_item_category(category_hint)
+        if direct_hint:
+            return direct_hint
+
+        matched_value = cls._find_category_value(card_list, category_hint)
+        matched_category = cls._normalize_category_node(matched_value)
+        if matched_category:
+            return matched_category
+
+        category_result = channel_res.get("data", {}).get("categoryPredictResult", {})
+        return cls._normalize_category_node(category_result) or {
+            "catId": "",
+            "catName": "",
+            "channelCatId": "",
+            "tbCatId": "",
+        }
+
+    @classmethod
+    def _build_item_label_list(
+        cls,
+        card_list: List[Dict[str, Any]],
+        category_hint: Optional[Any] = None,
+    ) -> List[Dict[str, Any]]:
+        labels: List[Dict[str, Any]] = []
+        for card in card_list:
+            if not isinstance(card, dict):
+                continue
+            card_data = card.get("cardData") or {}
+            values_list = card_data.get("valuesList") or []
+            selected_value = None
+            for value in values_list:
+                if cls._category_hint_matches(value, category_hint):
+                    selected_value = value
+                    break
+            if selected_value is None:
+                for value in values_list:
+                    if not isinstance(value, dict):
+                        continue
+                    if value.get("isClicked"):
+                        selected_value = value
+                        break
+            if selected_value is None:
+                continue
+
+            value = selected_value
+            labels.append(
+                {
+                    "channelCateName": value.get("catName"),
+                    "valueId": None,
+                    "channelCateId": value.get("channelCatId"),
+                    "valueName": None,
+                    "tbCatId": value.get("tbCatId"),
+                    "subPropertyId": None,
+                    "labelType": "common",
+                    "subValueId": None,
+                    "labelId": None,
+                    "propertyName": card_data.get("propertyName"),
+                    "isUserClick": "1",
+                    "isUserCancel": None,
+                    "from": "newPublishChoice",
+                    "propertyId": card_data.get("propertyId"),
+                    "labelFrom": "newPublish",
+                    "text": value.get("catName"),
+                    "properties": (
+                        f"{card_data.get('propertyId')}##{card_data.get('propertyName')}:"
+                        f"{value.get('channelCatId')}##{value.get('catName')}"
+                    ),
+                }
+            )
         return labels
 
     async def _post_mtop(
