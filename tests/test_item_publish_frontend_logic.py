@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 APP_JS = ROOT_DIR / "static" / "js" / "app.js"
+INDEX_HTML = ROOT_DIR / "static" / "index.html"
 
 
 def extract_js_function(source: str, name: str) -> str:
@@ -28,6 +29,17 @@ def extract_js_function(source: str, name: str) -> str:
 
 
 class ItemPublishFrontendLogicTest(unittest.TestCase):
+    def test_publish_image_input_does_not_use_native_required_validation(self):
+        html = INDEX_HTML.read_text(encoding="utf-8")
+        marker = 'id="publishImages"'
+        start = html.find(marker)
+        self.assertNotEqual(start, -1, "missing publishImages input")
+        input_start = html.rfind("<input", 0, start)
+        input_end = html.find(">", start)
+        input_html = html[input_start:input_end]
+
+        self.assertNotIn("required", input_html)
+
     def test_loaded_material_images_are_used_when_file_input_is_empty(self):
         source = APP_JS.read_text(encoding="utf-8")
         helper = extract_js_function(source, "getItemPublishImagesForSubmit")

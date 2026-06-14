@@ -653,7 +653,7 @@ class ItemPublisher:
             return None
         if isinstance(category_hint, dict):
             normalized = cls._normalize_category_node(category_hint)
-            if normalized and any(normalized.get(key) for key in ("catId", "channelCatId", "tbCatId")):
+            if normalized and cls._has_explicit_item_cat_id(category_hint):
                 return normalized
             return None
         if isinstance(category_hint, str):
@@ -666,9 +666,27 @@ class ItemPublisher:
                 except json.JSONDecodeError:
                     return None
                 normalized = cls._normalize_category_node(parsed)
-                if normalized and any(normalized.get(key) for key in ("catId", "channelCatId", "tbCatId")):
+                if normalized and cls._has_explicit_item_cat_id(parsed):
                     return normalized
         return None
+
+    @classmethod
+    def _has_explicit_item_cat_id(cls, node: Any) -> bool:
+        if not isinstance(node, dict):
+            return False
+
+        source = node.get("itemCatDTO") if isinstance(node.get("itemCatDTO"), dict) else node
+        return bool(
+            cls._first_non_empty(
+                source,
+                (
+                    "catId",
+                    "cat_id",
+                    "categoryId",
+                    "category_id",
+                ),
+            )
+        )
 
     @classmethod
     def _category_hint_text(cls, category_hint: Optional[Any]) -> str:
@@ -749,11 +767,19 @@ class ItemPublisher:
 
         matched_value = cls._find_category_value(card_list, category_hint)
         matched_category = cls._normalize_category_node(matched_value)
-        if matched_category:
+        if matched_category and cls._has_explicit_item_cat_id(matched_value):
             return matched_category
 
         category_result = channel_res.get("data", {}).get("categoryPredictResult", {})
-        return cls._normalize_category_node(category_result) or {
+        predicted_category = cls._normalize_category_node(category_result)
+        if matched_category and predicted_category and cls._has_explicit_item_cat_id(category_result):
+            merged_category = dict(predicted_category)
+            for key in ("catName", "channelCatId", "tbCatId"):
+                if matched_category.get(key):
+                    merged_category[key] = matched_category[key]
+            return merged_category
+
+        return predicted_category or {
             "catId": "",
             "catName": "",
             "channelCatId": "",

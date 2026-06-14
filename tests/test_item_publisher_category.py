@@ -115,12 +115,17 @@ class ItemPublisherCategoryTest(unittest.TestCase):
             },
         )
 
-    def test_build_publish_payload_matches_string_category_hint_against_card_values(self):
+    def test_build_publish_payload_merges_predicted_cat_id_with_text_matched_channel_category(self):
         publisher = self._publisher()
         args = self._base_payload_args()
         args["channel_res"] = {
             "data": {
-                "categoryPredictResult": {},
+                "categoryPredictResult": {
+                    "catId": "50023914",
+                    "catName": "虚拟服务",
+                    "channelCatId": "201453706",
+                    "tbCatId": "50014915",
+                },
                 "cardList": [
                     {
                         "cardData": {
@@ -133,9 +138,9 @@ class ItemPublisherCategoryTest(unittest.TestCase):
                                     "tbCatId": "book-tb",
                                 },
                                 {
-                                    "catName": "手机",
-                                    "channelCatId": "phone-channel",
-                                    "tbCatId": "phone-tb",
+                                    "catName": "软件使用指导",
+                                    "channelCatId": "software-channel",
+                                    "tbCatId": "software-tb",
                                 },
                             ],
                         }
@@ -144,13 +149,19 @@ class ItemPublisherCategoryTest(unittest.TestCase):
             }
         }
 
-        payload = publisher._build_publish_payload(**args, category_hint="手机")
+        payload = publisher._build_publish_payload(**args, category_hint="虚拟服务/软件使用指导/AI工具入门")
 
-        self.assertEqual(payload["itemCatDTO"]["catName"], "手机")
-        self.assertEqual(payload["itemCatDTO"]["catId"], "phone-channel")
-        self.assertEqual(payload["itemCatDTO"]["channelCatId"], "phone-channel")
-        self.assertEqual(payload["itemCatDTO"]["tbCatId"], "phone-tb")
-        self.assertEqual(payload["itemLabelExtList"][0]["text"], "手机")
+        self.assertEqual(
+            payload["itemCatDTO"],
+            {
+                "catId": "50023914",
+                "catName": "软件使用指导",
+                "channelCatId": "software-channel",
+                "tbCatId": "software-tb",
+            },
+        )
+        self.assertEqual(payload["itemLabelExtList"][0]["text"], "软件使用指导")
+        self.assertEqual(payload["itemLabelExtList"][0]["channelCateId"], "software-channel")
 
 
 if __name__ == "__main__":
