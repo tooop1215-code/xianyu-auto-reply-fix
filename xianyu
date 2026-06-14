@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
-from xianyu_cli.main import main
+"""Compatibility wrapper for the skill-bundled Xianyu CLI."""
+
+from pathlib import Path
+import runpy
+import sys
 
 
-if __name__ == "__main__":
-    main()
+ROOT = Path(__file__).resolve().parent
+SCRIPTS_DIR = ROOT / "skills" / "xianyu-cli-operations" / "scripts"
+
+sys.path.insert(0, str(SCRIPTS_DIR))
+runpy.run_path(str(SCRIPTS_DIR / "xianyu"), run_name="__main__")

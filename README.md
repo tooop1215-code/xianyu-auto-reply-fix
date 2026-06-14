@@ -215,9 +215,9 @@ python Start.py
 - 当前仓库未包含 GitHub Actions 自动构建配置
 - 镜像仓库地址请以实际发布情况为准
 
-## 🧰 项目内置 CLI
+## 🧰 项目内置 CLI / Skill
 
-本 fork 增加了项目内置命令行入口，适合在本地 Docker 部署旁边快速做运营动作：
+本 fork 增加了一个工作型 skill：`skills/xianyu-cli-operations/`。CLI 实现随 skill 打包在 `skills/xianyu-cli-operations/scripts/`，仓库根目录的 `./xianyu` 是兼容入口，适合在本地 Docker 部署旁边快速做运营动作：
 
 ```bash
 cd /Users/bot/Documents/即刻方案
@@ -250,6 +250,8 @@ cd /Users/bot/Documents/即刻方案
 ```
 
 CLI 默认连接 `http://localhost:8000`，可用 `XIANYU_BASE_URL`、`XIANYU_TOKEN`、`XIANYU_CONFIG` 覆盖。登录输出会脱敏 token；真实 token 只写入本机用户配置文件，不应提交到 git。
+
+OpenClaw/Codex agent 处理闲鱼运营任务时，应先阅读 `skills/xianyu-cli-operations/SKILL.md`，并优先通过该 skill 内置 CLI 执行常规操作。
 
 ### ⚙️ 环境变量配置（可选）
 

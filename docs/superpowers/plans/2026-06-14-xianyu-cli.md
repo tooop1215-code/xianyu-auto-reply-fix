@@ -4,7 +4,7 @@
 
 **Goal:** Build a project-local `xianyu` command line interface for service control, authentication, and immediate product publishing/management workflows.
 
-**Architecture:** Add a small Python package under `xianyu_cli/` that talks to the existing FastAPI server over HTTP and shells out to Docker Compose only for service lifecycle commands. Keep credentials in local config/Keychain-adjacent storage by default and never write secrets to repo docs. Add a root executable script `xianyu` so the CLI works from this checkout without packaging first.
+**Architecture:** Add a standard skill bundle under `skills/xianyu-cli-operations/` with `SKILL.md` plus CLI scripts in `scripts/`. The CLI talks to the existing FastAPI server over HTTP and shells out to Docker Compose only for service lifecycle commands. Keep credentials in local config/Keychain-adjacent storage by default and never write secrets to repo docs. Add a root executable wrapper `xianyu` so the CLI still works from this checkout without packaging first.
 
 **Tech Stack:** Python 3 standard library `argparse`, `json`, `urllib`, `subprocess`, `pathlib`; optional existing runtime only. Unit tests use `unittest` and mocked HTTP/command runners.
 
@@ -13,12 +13,14 @@
 ### Task 1: CLI Core
 
 **Files:**
-- Create: `xianyu_cli/__init__.py`
-- Create: `xianyu_cli/client.py`
-- Create: `xianyu_cli/config.py`
-- Create: `xianyu_cli/output.py`
-- Create: `xianyu_cli/main.py`
+- Create: `skills/xianyu-cli-operations/scripts/xianyu_cli/__init__.py`
+- Create: `skills/xianyu-cli-operations/scripts/xianyu_cli/client.py`
+- Create: `skills/xianyu-cli-operations/scripts/xianyu_cli/config.py`
+- Create: `skills/xianyu-cli-operations/scripts/xianyu_cli/output.py`
+- Create: `skills/xianyu-cli-operations/scripts/xianyu_cli/main.py`
+- Create: `skills/xianyu-cli-operations/scripts/xianyu`
 - Create: `xianyu`
+- Create: `skills/xianyu-cli-operations/SKILL.md`
 - Test: `tests/test_xianyu_cli.py`
 
 - [ ] Write failing tests for config loading, auth header construction, JSON body requests, multipart image requests, and table rendering.

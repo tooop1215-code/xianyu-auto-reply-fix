@@ -5,6 +5,11 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
+import sys
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+SKILL_SCRIPTS_DIR = ROOT_DIR / "skills" / "xianyu-cli-operations" / "scripts"
+sys.path.insert(0, str(SKILL_SCRIPTS_DIR))
 
 from xianyu_cli.client import ApiClient
 from xianyu_cli.config import CliConfig

@@ -1,103 +1,92 @@
 ---
 name: xianyu-cli-operations
-description: Use this skill whenever working in the xianyu-auto-reply-fix fork or 即刻方案 Xianyu operations and the user asks to manage accounts, products, product materials, publishing, logs, service health, Docker deployment, or shop operations. Prefer the project-local `./xianyu` CLI for all routine operations instead of editing the database, poking the web UI, or calling ad hoc curl commands.
-version: 1.0.0
+description: Use this skill whenever the user is doing 即刻方案闲鱼店铺运营, product listing, product material preparation, account readiness checks, publishing, sync, logs, Docker health, or delivery-adjacent operational work in the forked xianyu-auto-reply-fix project. This skill should push agents to use the bundled CLI under `skills/xianyu-cli-operations/scripts/` for routine work and to follow a shop-operations SOP rather than editing databases, clicking the web UI, or inventing one-off scripts.
+version: 1.1.0
 author: OpenClaw Agent
 license: MIT
 metadata:
   openclaw:
-    tags: [xianyu, cli, shop-operations, product-management, docker]
+    tags: [xianyu, shop-operations, cli, product-management, delivery-workflow]
 ---
 
-# Xianyu CLI Operations
+# 闲鱼店铺 CLI 工作 SOP
 
-## Purpose
+## 定位
 
-This skill is the operating guide for the forked `xianyu-auto-reply-fix` project used by the 即刻方案 workspace. It keeps agents on the safer path: use the repository's built-in `./xianyu` CLI as the main control plane, verify before acting, and avoid direct database or browser manipulation unless the CLI lacks the needed operation.
+这个 skill 是“工作使用说明”，不是代码说明。它用于即刻方案的闲鱼店铺运营、商品管理、商品发布素材准备、账号状态检查、同步、日志排障和本地 Docker 服务维护。
 
-## Canonical Entry Point
+默认原则：能用本 skill 打包的 CLI 完成的事情，就走 CLI；不要直接改 SQLite，不要直接点后台网页，不要临时写 curl 或散落脚本。
 
-Run commands from the repository root:
+## 打包资源
+
+CLI 实现随 skill 一起放在：
 
 ```bash
-cd /Users/bot/Documents/即刻方案
+skills/xianyu-cli-operations/scripts/xianyu
+skills/xianyu-cli-operations/scripts/xianyu_cli/
+```
+
+仓库根目录的 `./xianyu` 只是兼容入口，最终也会调用 skill 里的脚本。优先使用：
+
+```bash
 ./xianyu --help
 ```
 
-For another clone, use that clone's root and keep the same `./xianyu` command shape.
-
-The CLI defaults to:
-
-- API base URL: `http://localhost:8000`
-- Docker Compose file: `docker-compose-cn.yml`
-- token config: `~/.config/xianyu-cli/config.json`
-
-Supported overrides:
+如果在 OpenClaw 只加载到 skill 目录，也可以直接运行：
 
 ```bash
-XIANYU_BASE_URL=http://localhost:8000 ./xianyu service health
-XIANYU_TOKEN=<token> ./xianyu account list
-XIANYU_CONFIG=/path/to/config.json ./xianyu auth token
+python3 skills/xianyu-cli-operations/scripts/xianyu --help
 ```
 
-Do not write passwords, cookies, tokens, or buyer data into project docs, git commits, task notes, or skill files.
+## 工作前检查
 
-## Default Workflow
-
-1. Confirm you are in the fork repository root with `pwd` and `git remote -v`.
-2. Check service health before operational work:
-
-   ```bash
-   ./xianyu service health
-   ```
-
-3. If an authenticated command fails, check token state:
-
-   ```bash
-   ./xianyu auth token
-   ```
-
-   Login only when needed:
-
-   ```bash
-   ./xianyu auth login -u admin
-   ```
-
-4. Prefer read-only discovery before mutating state.
-5. For destructive or real marketplace actions, explain the target account/item/material and require explicit user confirmation unless the user already provided a clear instruction and the CLI command includes `--yes`.
-6. After changes, run a read-back command that proves the expected state.
-
-## Service Commands
-
-Use these for local Docker service operations:
+进入 fork 仓库根目录：
 
 ```bash
-./xianyu service status
+cd /Users/bot/Documents/即刻方案
+```
+
+先确认本地服务健康：
+
+```bash
 ./xianyu service health
-./xianyu service logs
-./xianyu service restart
-./xianyu service stop
-./xianyu service start
 ```
 
-Prefer `service health` for quick checks. Use logs only when investigating failures or startup behavior.
+再确认登录 token 是否存在：
 
-## Account Commands
+```bash
+./xianyu auth token
+```
 
-Use these to inspect and control configured Xianyu accounts:
+需要登录后台时再执行：
+
+```bash
+./xianyu auth login -u admin
+```
+
+不要把后台密码、闲鱼 cookie、token、买家信息、订单收货信息写入 git、skill、README、任务记录或长期知识库。
+
+## 账号就绪判断
+
+做商品同步、发布、发货、客服消息等动作前，先看账号：
 
 ```bash
 ./xianyu account list
 ./xianyu account status <account_id>
+```
+
+如果状态里出现 reconnecting、login backoff、missing token、session not ready、ws not ready 等情况，先向用户说明“账号会话未就绪”，不要直接发布或重试高风险动作。
+
+启停账号要有明确意图：
+
+```bash
 ./xianyu account enable <account_id>
 ./xianyu account disable <account_id>
 ```
 
-Before publishing, syncing, sending messages, or delivery actions, inspect the account. If the runtime status reports reconnecting, login backoff, missing token, or no ready session, report that the account session must be repaired before live operations.
+## 商品管理流程
 
-## Product Management
-
-Read local product data:
+读本地商品：
 
 ```bash
 ./xianyu product all
@@ -105,32 +94,56 @@ Read local product data:
 ./xianyu product detail <account_id> <item_id>
 ```
 
-Search public Xianyu items:
+搜索外部商品参考：
 
 ```bash
 ./xianyu product search "关键词" --page 1 --page-size 20
 ```
 
-Sync products from an account into the local database:
+从账号同步商品到本地：
 
 ```bash
 ./xianyu product pull <account_id>
 ./xianyu product pull <account_id> --page 1 --page-size 20
 ```
 
-Update or remove local item records:
+更新本地商品详情：
 
 ```bash
 ./xianyu product update <account_id> <item_id> --detail "新的商品详情"
 ./xianyu product update <account_id> <item_id> --detail @/path/to/detail.txt
+```
+
+删除本地商品记录是破坏性动作，必须确认目标账号和商品 id：
+
+```bash
 ./xianyu product delete <account_id> <item_id> --yes
 ```
 
-Treat delete as destructive. Confirm the exact account and item id first when the user's instruction is not already explicit.
+## 商品素材流程
 
-## Product Publishing
+把待发布商品先沉淀成素材，便于复用、批量发布和复核：
 
-Publish with local image files:
+```bash
+./xianyu product materials list
+./xianyu product materials create --title "素材标题" --description "描述" --price 19.9
+./xianyu product materials detail <material_id>
+./xianyu product materials update <material_id> --title "新标题"
+./xianyu product materials delete <material_id> --yes
+```
+
+素材删除需要确认。素材创建和更新后，用 `detail` 读回，确认标题、价格、图片、发货方式无误。
+
+## 发布流程
+
+发布是真实店铺动作。执行前必须完成四件事：
+
+1. `./xianyu service health` 为 healthy。
+2. `./xianyu account status <account_id>` 显示账号会话可用。
+3. 用户确认标题、价格、图片、描述、发货方式。
+4. 明确这是要发布到真实闲鱼账号。
+
+用图片文件发布：
 
 ```bash
 ./xianyu product publish \
@@ -141,51 +154,13 @@ Publish with local image files:
   --image ./cover.jpg
 ```
 
-Publish with a JSON payload:
+用 JSON 发布：
 
 ```bash
 ./xianyu product publish-json ./payload.json
 ```
 
-JSON payload shape:
-
-```json
-{
-  "account_id": "account-id",
-  "title": "商品标题",
-  "description": "商品描述",
-  "price": 19.9,
-  "original_price": 29.9,
-  "images": ["https://example.com/image.jpg"],
-  "delivery_method": "包邮",
-  "postage": 0,
-  "can_self_pickup": false,
-  "category": "虚拟商品",
-  "brand": null,
-  "condition": "全新"
-}
-```
-
-Publishing is a live marketplace action. Before running publish commands:
-
-1. Check `./xianyu account status <account_id>`.
-2. Confirm the item title, price, images, and delivery method.
-3. Confirm the user intends to publish to the live Xianyu account.
-4. Run the command once; do not retry blindly after ambiguous failures.
-
-## Product Materials And Batch Publishing
-
-Manage reusable product material records:
-
-```bash
-./xianyu product materials list
-./xianyu product materials create --title "素材标题" --description "描述" --price 19.9
-./xianyu product materials detail <material_id>
-./xianyu product materials update <material_id> --title "新标题"
-./xianyu product materials delete <material_id> --yes
-```
-
-Batch publish existing materials to one or more accounts:
+批量发布素材：
 
 ```bash
 ./xianyu product batch-publish --account <account_id> --material <material_id>
@@ -193,37 +168,59 @@ Batch publish existing materials to one or more accounts:
 ./xianyu product publish-logs
 ```
 
-Batch publish is also a live marketplace action. Confirm account ids, material ids, and total job count before starting.
+遇到发布结果不明确时，不要盲目重试。先查 `publish-logs` 或 `batch-status`，再决定下一步。
 
-## Output And Evidence
+## 服务运维
 
-Use JSON output by default because it is durable and easy to quote back accurately. Use table output only for human scanning:
+```bash
+./xianyu service status
+./xianyu service health
+./xianyu service logs
+./xianyu service restart
+./xianyu service stop
+./xianyu service start
+```
+
+优先用 `service health` 做快速确认。只有排障时才拉日志。重启服务前说明原因，避免打断正在运行的自动化任务。
+
+## 输出规范
+
+汇报给用户时，按这个结构：
+
+```text
+操作：
+- 运行了哪些命令，隐藏密码/cookie/token
+
+结果：
+- 成功或失败
+- 关键 id：account_id、item_id、material_id、batch_id
+
+风险：
+- 账号是否未就绪
+- 是否涉及真实发布/删除/发货
+
+下一步：
+- 需要用户确认或需要继续执行的动作
+```
+
+默认保留 CLI 的 JSON 输出作为证据。需要人工扫描时可用：
 
 ```bash
 ./xianyu --output table product materials list
 ```
 
-When reporting results, include:
+## 边界
 
-- command run, with secrets omitted
-- success/failure state
-- important ids such as account id, item id, material id, or batch id
-- any non-blocking runtime warnings, such as account reconnecting or login backoff
+- 不提供批量注册、规避风控、绕过平台规则、养号规避等建议。
+- 不把隐私数据或凭据写入仓库。
+- 不绕过 CLI 直接改库，除非 CLI 没有能力且用户明确要求。
+- 不在账号未就绪时做发布、发货、客服发送等动作。
+- 不对真实店铺执行破坏性或外部可见动作，除非用户目标明确。
 
-## Boundaries
+## 完成前检查
 
-- Do not bypass the CLI with direct SQLite edits for routine operations.
-- Do not scrape or automate the web UI when the CLI exposes the operation.
-- Do not print, commit, or store raw cookies, passwords, tokens, buyer identities, addresses, payment details, or chat content unless the user explicitly asks and it is necessary for the task.
-- Do not provide ban-evasion, mass-registration, or platform-rule circumvention advice.
-- Do not trigger live publish, delivery, chat-send, account disable, or deletion commands without clear intent and a verification/read-back plan.
-
-## Verification Checklist
-
-Before claiming completion:
-
-- [ ] `./xianyu service health` passed or the service issue was reported.
-- [ ] Authenticated commands used an existing token or a fresh `auth login`.
-- [ ] No secrets were printed or written to tracked files.
-- [ ] For mutating commands, the target account/item/material was confirmed.
-- [ ] A read-back command verified the resulting state.
+- [ ] 服务健康已检查，或已明确报告服务不可用。
+- [ ] 账号状态已检查，或该任务不需要账号。
+- [ ] 没有输出或提交密码、cookie、token、买家隐私。
+- [ ] 真实发布、删除、发货、启停账号等动作有明确确认。
+- [ ] 用读回命令验证了结果。
