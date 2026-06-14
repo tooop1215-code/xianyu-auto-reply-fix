@@ -960,12 +960,15 @@ Cookie数量: {cookie_count}
             ''')
 
             # 插入默认系统设置（不包括管理员密码，由reply_server.py初始化）
+            registration_enabled = os.getenv('USER_REGISTRATION_ENABLED', 'true').lower()
+            show_default_login_info = os.getenv('SHOW_DEFAULT_LOGIN_INFO', 'true').lower()
+            login_captcha_enabled = os.getenv('CAPTCHA_ENABLED', 'true').lower()
             cursor.execute('''
             INSERT OR IGNORE INTO system_settings (key, value, description) VALUES
             ('theme_color', 'blue', '主题颜色'),
-            ('registration_enabled', 'true', '是否开启用户注册'),
-            ('show_default_login_info', 'true', '是否显示默认登录信息'),
-            ('login_captcha_enabled', 'true', '是否开启登录验证码'),
+            ('registration_enabled', ?, '是否开启用户注册'),
+            ('show_default_login_info', ?, '是否显示默认登录信息'),
+            ('login_captcha_enabled', ?, '是否开启登录验证码'),
             ('risk_control_night_mode_enabled', 'false', '是否启用夜间风控降频'),
             ('risk_control_night_start_hour', '1', '夜间风控降频开始小时'),
             ('risk_control_night_end_hour', '6', '夜间风控降频结束小时'),
@@ -981,7 +984,7 @@ Cookie数量: {cookie_count}
             ('auto_comment_api_url', '', '自动好评辅助 API 地址（留空则禁用此功能，避免 Cookie 外发）'),
             ('auto_red_flower_interval_seconds', '300', '自动求小红花后台任务检查间隔秒数'),
             ('qq_reply_secret_key', 'xianyu_qq_reply_2024', 'QQ回复消息API秘钥')
-            ''')
+            ''', (registration_enabled, show_default_login_info, login_captcha_enabled))
 
             # 检查并升级数据库
             self.check_and_upgrade_db(cursor)
@@ -1516,7 +1519,8 @@ Cookie数量: {cookie_count}
 
             if not admin_exists:
                 # 首次创建admin用户，设置默认密码和管理员权限
-                default_password_hash = hashlib.sha256("admin123".encode()).hexdigest()
+                default_admin_password = os.getenv('ADMIN_PASSWORD', 'admin123')
+                default_password_hash = hashlib.sha256(default_admin_password.encode()).hexdigest()
                 # 检查is_admin列是否存在
                 try:
                     cursor.execute('SELECT is_admin FROM users LIMIT 1')

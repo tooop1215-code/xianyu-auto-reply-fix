@@ -296,6 +296,8 @@ build/
 !CONTRIBUTING.md
 !SECURITY.md
 !LICENSE.md
+!docs/superpowers/plans/*.md
+!skills/**/SKILL.md
 
 # 临时配置文件
 *.local.yml
@@ -535,6 +537,7 @@ tmp_*.py
 quick_*.py
 fix_*.py
 test_*.py
+!tests/test_*.py
 check_*.py
 debug_*.py
 

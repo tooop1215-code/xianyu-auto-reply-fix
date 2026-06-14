@@ -215,6 +215,42 @@ python Start.py
 - 当前仓库未包含 GitHub Actions 自动构建配置
 - 镜像仓库地址请以实际发布情况为准
 
+## 🧰 项目内置 CLI
+
+本 fork 增加了项目内置命令行入口，适合在本地 Docker 部署旁边快速做运营动作：
+
+```bash
+cd /Users/bot/Documents/即刻方案
+
+# 查看服务状态与健康检查
+./xianyu service status
+./xianyu service health
+
+# 登录后台，token 会保存到 ~/.config/xianyu-cli/config.json
+./xianyu auth login -u admin
+
+# 账号与商品
+./xianyu account list
+./xianyu product list --account <账号ID>
+./xianyu product detail <账号ID> <商品ID>
+./xianyu product update <账号ID> <商品ID> --detail "新的商品详情"
+./xianyu product delete <账号ID> <商品ID> --yes
+
+# 搜索、同步、发布
+./xianyu product search "关键词" --page 1 --page-size 20
+./xianyu product pull <账号ID>
+./xianyu product publish --account <账号ID> --title "标题" --description "描述" --price 19.9 --image ./cover.jpg
+./xianyu product publish-json ./payload.json
+
+# 商品素材与批量发布
+./xianyu product materials list
+./xianyu product materials create --title "素材标题" --description "描述" --price 19.9 --image "https://example.com/cover.jpg"
+./xianyu product batch-publish --account <账号ID> --material <素材ID>
+./xianyu product publish-logs
+```
+
+CLI 默认连接 `http://localhost:8000`，可用 `XIANYU_BASE_URL`、`XIANYU_TOKEN`、`XIANYU_CONFIG` 覆盖。登录输出会脱敏 token；真实 token 只写入本机用户配置文件，不应提交到 git。
+
 ### ⚙️ 环境变量配置（可选）
 
 系统实际会读取的环境变量主要包括：
